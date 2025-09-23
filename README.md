@@ -1,6 +1,6 @@
 # WinMan - Windows User Management CLI Tool
 
-WinMan is a Python command-line interface for managing Windows local user accounts and groups using PowerShell commands and built-in Windows utilities. It enables IT administrators and power users to automate user account operations with an easy-to-use interactive prompt.
+WinMan is a Python command-line interface for managing Windows local user accounts and groups using PowerShell commands and built-in Windows utilities. It enables IT administrators and power users to automate user account operations with an easy-to-use interactive prompt. I intend to add some more features to this.
 
 ---
 
