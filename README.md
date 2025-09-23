@@ -26,7 +26,7 @@ WinMan is a Python command-line interface for managing Windows local user accoun
 
 ## Usage
 
-1. Open the dist folder containing the .exe
+1. Open the dist folder containing the .exe, the script auto-elevates the command prompt if not running as admin.
 
 
 
