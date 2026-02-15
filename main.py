@@ -1,220 +1,236 @@
 import ctypes
 import subprocess
 import sys
+import shlex
 
 def is_admin():
+    """Checks if the script is running with administrator privileges."""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
 
-if not is_admin():
-    print("Script is not running with administrator privileges.")
-    # Relaunch the script with admin rights
-    params = ' '.join([f'"{arg}"' for arg in sys.argv])
-    try:
-        subprocess.run(['powershell', 'Start-Process', sys.executable, '-ArgumentList', params, '-Verb', 'runAs'], check=True)
-    except subprocess.CalledProcessError:
-        print("Failed to elevate privileges. Exiting.")
-    sys.exit(0)
+def elevate_privileges():
+    """Relaunches the script with administrator privileges."""
+    if not is_admin():
+        print("Administrator privileges required. Elevating...")
+        params = ' '.join([f'"{arg}"' for arg in sys.argv])
+        try:
+            subprocess.run(['powershell', 'Start-Process', sys.executable, '-ArgumentList', params, '-Verb', 'runAs'], check=True)
+        except subprocess.CalledProcessError:
+            print("Failed to elevate privileges. Please run as administrator.")
+        sys.exit(0)
 
-class WinUser:
-    def __init__(self, user_name=None, password=None, full_name=None, description="None"):
-        self.user_name = user_name
-        self.password = password
-        self.full_name = full_name
-        self.description = description
+class WinMan:
+    """A utility class for managing Windows local user accounts and groups."""
 
+    @staticmethod
+    def execute(command):
+        """Executes a given command and handles errors."""
+        try:
+            run = subprocess.run(command, check=True, capture_output=True, text=True)
+            if run.stdout:
+                print(run.stdout)
+            if run.stderr:
+                print(run.stderr)
+            return run
+        except subprocess.CalledProcessError as e:
+            print(f"Error: Command failed with return code {e.returncode}")
+            print(f"Command: {' '.join(e.cmd)}")
+            if e.stderr:
+                print(f"Error output:\n{e.stderr}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return None
 
-    def create_account(self):
-        account = [
+    @staticmethod
+    def create_account(user_name, password, full_name, description="None"):
+        """Creates a new local user account."""
+        print(f"Creating user: {user_name}")
+        account_cmd = [
             "powershell", "-Command",
-            f"New-LocalUser -Name '{self.user_name}' "
-            f"-Password (ConvertTo-SecureString '{self.password}' -AsPlainText -Force) "
-            f"-FullName '{self.full_name}' -Description '{self.description}'"
+            f"New-LocalUser -Name '{user_name}' "
+            f"-Password (ConvertTo-SecureString '{password}' -AsPlainText -Force) "
+            f"-FullName '{full_name}' -Description '{description}'"
         ]
-        self.execute(account)
+        WinMan.execute(account_cmd)
 
-    def delete_user(self, user_name):
-        delete = ["net", "user", f'{user_name}', "/delete"]
-        self.execute(delete)
+    @staticmethod
+    def delete_user(user_name):
+        """Deletes a local user account."""
+        print(f"Deleting user: {user_name}")
+        delete_cmd = ["net", "user", user_name, "/delete"]
+        WinMan.execute(delete_cmd)
 
-    def list_users(self):
-        get_users = ["net", "user"]
-        output = self.execute(get_users)
-        return output.stdout if output else ""
+    @staticmethod
+    def list_users():
+        """Lists all local user accounts."""
+        print("Listing local users...")
+        list_cmd = ["net", "user"]
+        WinMan.execute(list_cmd)
 
-    def user_exists(self, user_name=None, show_user_details=False):
-        output = self.list_users().split()
-        trimmed_result = [x.lower() for x in output if x.strip()]
-        for result in trimmed_result:
-            if user_name.lower() == result:
-                if show_user_details:
-                    return self.get_account_details(user_name).stdout
-                return f"User {user_name} exists"
-        return f"User {user_name} not found"
+    @staticmethod
+    def user_exists(user_name):
+        """Checks if a local user exists."""
+        print(f"Checking if user '{user_name}' exists...")
+        get_users_cmd = ["net", "user"]
+        output = WinMan.execute(get_users_cmd)
+        if output and output.stdout:
+            users = output.stdout.split()
+            if user_name.lower() in [u.lower() for u in users]:
+                print(f"User '{user_name}' exists.")
+                return True
+        print(f"User '{user_name}' not found.")
+        return False
 
-    def get_account_details(self, user_name):
-        return self.execute(["net", "user", f'{user_name}'])
+    @staticmethod
+    def get_account_details(user_name):
+        """Gets detailed information about a local user account."""
+        print(f"Getting details for user: {user_name}")
+        details_cmd = ["net", "user", user_name]
+        WinMan.execute(details_cmd)
 
-    def rename_user(self, old_name, new_name):
+    @staticmethod
+    def rename_user(old_name, new_name):
+        """Renames a local user account."""
+        print(f"Renaming user '{old_name}' to '{new_name}'")
         rename_cmd = [
             "powershell", "-Command",
             f"Rename-LocalUser -Name '{old_name}' -NewName '{new_name}'"
         ]
-        self.execute(rename_cmd)
+        WinMan.execute(rename_cmd)
 
-    def change_password(self, user_name, new_password):
+    @staticmethod
+    def change_password(user_name, new_password):
+        """Changes the password for a local user."""
+        print(f"Changing password for user: {user_name}")
         pass_cmd = [
             "powershell", "-Command",
             f"Set-LocalUser -Name '{user_name}' -Password "
             f"(ConvertTo-SecureString '{new_password}' -AsPlainText -Force)"
         ]
-        self.execute(pass_cmd)
+        WinMan.execute(pass_cmd)
 
-    def user_groups(self, user_name):
+    @staticmethod
+    def user_groups(user_name):
+        """Lists the groups a user is a member of."""
+        print(f"Getting groups for user: {user_name}")
         groups_cmd = [
             "powershell", "-Command",
             f"(Get-LocalUser -Name '{user_name}').MemberOf"
         ]
-        output = self.execute(groups_cmd)
-        if output:
-            print(output.stdout)
-        else:
-            print("No groups found or user does not exist.")
+        WinMan.execute(groups_cmd)
 
-    def add_user_to_group(self, user_name, group_name):
+    @staticmethod
+    def add_user_to_group(user_name, group_name):
+        """Adds a user to a local group."""
+        print(f"Adding user '{user_name}' to group '{group_name}'")
         add_cmd = [
             "powershell", "-Command",
             f"Add-LocalGroupMember -Group '{group_name}' -Member '{user_name}'"
         ]
-        self.execute(add_cmd)
+        WinMan.execute(add_cmd)
 
-    def remove_user_from_group(self, user_name, group_name):
+    @staticmethod
+    def remove_user_from_group(user_name, group_name):
+        """Removes a user from a local group."""
+        print(f"Removing user '{user_name}' from group '{group_name}'")
         remove_cmd = [
             "powershell", "-Command",
             f"Remove-LocalGroupMember -Group '{group_name}' -Member '{user_name}'"
         ]
-        self.execute(remove_cmd)
-
-    def execute(self, command):
-        try:
-            run = subprocess.run(command, check=True, capture_output=True, text=True)
-            if run.returncode == 0:
-                print(f"Successfully executed command {command}")
-                return run
-            else:
-                print(run.stderr)
-        except subprocess.CalledProcessError as e:
-            print(f"Error: Command failed. Command: {e.cmd} Return Code: {e.returncode}")
-        except Exception as e:
-            print(f"Error: {e}")
-
-print("Welcome to WinMan\n")
-print(
-    "Enter Commands below, example: makeuser[username password fullname description]\n"
-    "makeuser admin 123 Administrator An account with admin rights\n"
-    "Commands should be separated by a space\n"
-    "Additional commands: list_users, check_user [username], user_details [username], rename_user [oldname] [newname],\n"
-    "change_password [username] [newpassword], user_groups [username], add_user_to_group [username] [groupname], remove_user_from_group [username] [groupname],\nhelp, exit, quit"
-)
-
-user = WinUser()
+        WinMan.execute(remove_cmd)
 
 def show_help():
+    """Displays the help message with available commands."""
     help_text = """
-Available commands:
-- makeuser [username password fullname description] : Create a new user
-- delete_user [username] : Delete a user
-- list_users : List all local users
-- check_user [username] : Check if a user exists
-- user_details [username] : Show detailed info of a user
-- rename_user [oldname] [newname] : Rename a user account
-- change_password [username] [newpassword] : Change a user's password
-- user_groups [username] : List groups a user belongs to
-- add_user_to_group [username] [groupname] : Add a user to a group
-- remove_user_from_group [username] [groupname] : Remove a user from a group
-- help : Show this help message
-- exit, quit : Exit the program
-"""
+    Available commands:
+    - makeuser [username] [password] [fullname] "[description]" : Create a new user.
+    - delete_user [username] : Delete a user.
+    - list_users : List all local users.
+    - check_user [username] : Check if a user exists.
+    - user_details [username] : Show detailed info of a user.
+    - rename_user [oldname] [newname] : Rename a user account.
+    - change_password [username] [newpassword] : Change a user's password.
+    - user_groups [username] : List groups a user belongs to.
+    - add_user_to_group [username] [groupname] : Add a user to a group.
+    - remove_user_from_group [username] [groupname] : Remove a user from a group.
+    - help : Show this help message.
+    - exit, quit : Exit the program.
+
+    Note: Arguments with spaces should be enclosed in double quotes.
+    """
     print(help_text)
 
-while True:
-    cinput = input("> ").strip()
-    if cinput.lower() in ["exit", "quit"]:
-        exit(0)
-    user_input_split = cinput.split(" ")
-    match user_input_split[0]:
-        case "makeuser":
-            trimmed_result = [x.strip() for x in user_input_split if x.strip()]
-            if len(trimmed_result) < 5:
-                print("Error: Invalid input format. Please provide all required fields.")
-                continue
-            final_trim = trimmed_result[:4] + [" ".join(trimmed_result[4:])]
-            user.user_name = final_trim[1]
-            user.password = final_trim[2]
-            user.full_name = final_trim[3]
-            user.description = final_trim[4]
-            user.create_account()
+def main():
+    """Main function to run the interactive command loop."""
+    elevate_privileges()
 
-        case "delete_user":
-            if len(user_input_split) != 2:
-                print(f"Error: Invalid input format. Expect 2 items got {len(user_input_split)}")
-                continue
-            user.delete_user(user_input_split[1])
+    print("\nWelcome to WinManUtil - Windows User Management Utility")
+    print("Type 'help' for a list of commands.")
 
-        case "list_users":
-            output = user.list_users()
-            print(output)
-
-        case "check_user":
-            if len(user_input_split) != 2:
-                print("Error: Username required")
+    while True:
+        try:
+            cinput = input("> ").strip()
+            if not cinput:
                 continue
-            print(user.user_exists(user_input_split[1], show_user_details=False))
+            if cinput.lower() in ["exit", "quit"]:
+                break
 
-        case "user_details":
-            if len(user_input_split) != 2:
-                print("Error: Username required")
-                continue
-            details = user.get_account_details(user_input_split[1])
-            if details:
-                print(details.stdout)
+            parts = shlex.split(cinput)
+            command = parts[0].lower()
+            args = parts[1:]
+
+            def validate_args(expected_count):
+                if len(args) != expected_count:
+                    print(f"Error: Invalid number of arguments for '{command}'. Expected {expected_count}, got {len(args)}.")
+                    return False
+                return True
+
+            if command == "makeuser":
+                if len(args) < 3 or len(args) > 4:
+                    print("Error: Usage: makeuser [username] [password] [fullname] \"[description]\"")
+                    continue
+                description = args[3] if len(args) == 4 else "None"
+                WinMan.create_account(args[0], args[1], args[2], description)
+            elif command == "delete_user":
+                if validate_args(1):
+                    WinMan.delete_user(args[0])
+            elif command == "list_users":
+                if validate_args(0):
+                    WinMan.list_users()
+            elif command == "check_user":
+                if validate_args(1):
+                    WinMan.user_exists(args[0])
+            elif command == "user_details":
+                if validate_args(1):
+                    WinMan.get_account_details(args[0])
+            elif command == "rename_user":
+                if validate_args(2):
+                    WinMan.rename_user(args[0], args[1])
+            elif command == "change_password":
+                if validate_args(2):
+                    WinMan.change_password(args[0], args[1])
+            elif command == "user_groups":
+                if validate_args(1):
+                    WinMan.user_groups(args[0])
+            elif command == "add_user_to_group":
+                if validate_args(2):
+                    WinMan.add_user_to_group(args[0], args[1])
+            elif command == "remove_user_from_group":
+                if validate_args(2):
+                    WinMan.remove_user_from_group(args[0], args[1])
+            elif command == "help":
+                show_help()
             else:
-                print("User details not found")
+                print("Invalid command. Type 'help' for a list of commands.")
 
-        case "rename_user":
-            if len(user_input_split) != 3:
-                print("Usage: rename_user [oldname] [newname]")
-                continue
-            user.rename_user(user_input_split[1], user_input_split[2])
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+        except Exception as e:
+            print(f"An error occurred in the main loop: {e}")
 
-        case "change_password":
-            if len(user_input_split) != 3:
-                print("Usage: change_password [username] [newpassword]")
-                continue
-            user.change_password(user_input_split[1], user_input_split[2])
-
-        case "user_groups":
-            if len(user_input_split) != 2:
-                print("Usage: user_groups [username]")
-                continue
-            user.user_groups(user_input_split[1])
-
-        case "add_user_to_group":
-            if len(user_input_split) != 3:
-                print("Usage: add_user_to_group [username] [groupname]")
-                continue
-            user.add_user_to_group(user_input_split[1], user_input_split[2])
-
-        case "remove_user_from_group":
-            if len(user_input_split) != 3:
-                print("Usage: remove_user_from_group [username] [groupname]")
-                continue
-            user.remove_user_from_group(user_input_split[1], user_input_split[2])
-
-        case "help":
-            show_help()
-
-        case _:
-            print("Invalid command. Type 'help' for a list of commands.")
+if __name__ == "__main__":
+    main()
